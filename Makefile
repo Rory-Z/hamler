@@ -22,9 +22,9 @@ run:
 	cabal build  && cabal run $(exe_target)
 
 install:
-ifeq ($(shell uname -s),Linux)
-	cabal install --installdir=/usr/bin --overwrite-policy=always
-endif
+# ifeq ($(shell uname -s),Linux)
+# 	cabal install --installdir=/usr/bin --overwrite-policy=always
+# endif
 	@mkdir -p $(HAMLER_HOME)
 	cabal install --installdir=$(HAMLER_HOME)/bin --overwrite-policy=always
 	@cp repl/replsrv $(HAMLER_HOME)/bin/replsrv

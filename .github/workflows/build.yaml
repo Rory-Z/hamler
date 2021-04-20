@@ -12,33 +12,25 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-        - name: install erlang
-          env:
-            OTP_VERSION: 23
-          run: |
-            curl -L -o /tmp/erlang-solutions_2.0_all.deb https://packages.erlang-solutions.com/erlang-solutions_2.0_all.deb \
-            && sudo dpkg -i /tmp/erlang-solutions_2.0_all.deb \
-            && curl -L -o /tmp/erlang_solutions.asc https://packages.erlang-solutions.com/ubuntu/erlang_solutions.asc \
-            && sudo apt-key add /tmp/erlang_solutions.asc \
-            && sudo apt update \
-            && version=$(apt-cache madison esl-erlang |grep ${OTP_VERSION} | sed -n '1, 1p' | awk '{print $3}') \
-            && sudo apt install --allow-downgrades esl-erlang=${version}
-        - name: set LC_ALL
-          run: |
-            sudo apt update && sudo apt install -y locales
-            sudo locale-gen en_US.UTF-8
-            echo "LC_ALL=en_US.UTF-8" >> $GITHUB_ENV
-        - name: install library
-          run: |
-            sudo apt update && sudo apt install -y libtinfo-dev ghc
-            echo "~/.local/bin" >> $GITHUB_PATH
-            curl -sSL https://get.haskellstack.org/ | sh -s - -f
+        - uses: ErlGang/setup-erlang@master
+          with:
+            otp-version: '23.2'
+        - name: Setup Haskell
+          uses: haskell/actions/setup@v1
+          with:
+            ghc-version: 8.10
+            cabal-version: 3.4
+        - name: install happy
+          run: stack install happy-1.19.9 --resolver lts-13.26
         - uses: actions/checkout@v2
         - name: make
+          env:
+            HAMLER_HOME: ${{ github.workspace }}/.cabal/hamler
           run: |
             make
             make test
-            sudo make install
+            make install
+            echo "$HAMLER_HOME/bin" >> $GITHUB_PATH
         - name: tests
           run: |
             mkdir test
@@ -50,9 +42,9 @@ jobs:
         - name: create tgz file
           run: |
             version=$(echo ${{ github.ref }} | sed -r  "s .*/.*/(.*) \1 g")
-            cd /usr/lib && sudo tar cvf hamler-${version}.tgz hamler && cd -
+            cd ${{ github.workspace }}/.cabal && sudo tar cvf hamler-${version}.tgz hamler && cd -
             mkdir -p _packages
-            sudo mv /usr/lib/hamler-${version}.tgz _packages
+            sudo mv ${{ github.workspace }}/.cabal/hamler-${version}.tgz _packages
             cd _packages && for var in $(ls *.tgz); do bash -c "echo $(sha256sum $var | awk '{print $1}') > $var.sha256"; done && cd -
         - uses: actions/upload-artifact@v1
           with:
@@ -70,7 +62,7 @@ jobs:
       runs-on: ubuntu-latest
 
       container:
-        image: debian:9
+        image: haskell:8.10
 
       steps:
       - name: install erlang
@@ -85,21 +77,16 @@ jobs:
           apt update
           version=$(apt-cache madison esl-erlang |grep ${OTP_VERSION} | sed -n '1, 1p' | awk '{print $3}')
           apt-get install -y esl-erlang=${version}
-      - name: set env
-        run: |
-          apt update && apt install -y locales
-          echo "LC_ALL=en_US.UTF-8" >> /etc/environment
-          echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
-          echo "LANG=en_US.UTF-8" > /etc/locale.conf
-          locale-gen en_US.UTF-8
-          echo "LC_ALL=en_US.UTF-8" >> $GITHUB_ENV
-          echo "STACK_ROOT=$(pwd)" >> $GITHUB_ENV
-          echo "~/.local/bin" >> $GITHUB_PATH
-      - name: install library
-        run: |
-          apt update && apt install -y libtinfo-dev ghc
-          curl -sSL https://get.haskellstack.org/ | sh -s - -f
-      - uses: actions/checkout@v1
+          # - name: Setup Haskell
+          #   uses: haskell/actions/setup@v1
+          #   with:
+          #     ghc-version: 8.10
+          #     cabal-version: 3.4
+      - name: install happy
+        env:
+          HOME: '/root'
+        run: stack install happy-1.19.9 --resolver lts-13.26 || stack setup && stack install happy-1.19.9 --resolver lts-13.26
+      - uses: actions/checkout@v2
       - name: make
         run: |
           make pkg
@@ -155,25 +142,23 @@ jobs:
       steps:
       - name: install erlang
         env:
-          OTP_VERSION: 23.0.3
+          OTP_VERSION: 23.2
         run: |
           yum groupinstall -y "Development Tools"
-          yum install -y wget git curl which ncurses-devel openssl-devel https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+          yum install -y sudo wget git curl which ncurses-devel openssl-devel https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
           wget https://packages.erlang-solutions.com/erlang-solutions-2.0-1.noarch.rpm
           rpm -Uvh erlang-solutions-2.0-1.noarch.rpm
           rpm --import https://packages.erlang-solutions.com/rpm/erlang_solutions.asc
           yum list erlang --showduplicates | sort -r
           yum install -y erlang-${OTP_VERSION}
-      - name: set env
-        run: |
-          echo "LC_ALL=en_US.UTF-8" >> $GITHUB_ENV
-          echo "STACK_ROOT=$(pwd)" >> $GITHUB_ENV
-          echo "~/.local/bin" >> $GITHUB_PATH
-      - name: install library
-        run: |
-          yum install -y ghc
-          curl -sSL https://get.haskellstack.org/ | sh -s - -f
-      - uses: actions/checkout@v1
+      - name: Setup Haskell
+        uses: haskell/actions/setup@v1
+        with:
+          ghc-version: 8.10
+          cabal-version: 3.4
+      - name: install happy
+        run: stack install happy-1.19.9 --resolver lts-13.26
+      - uses: actions/checkout@v2
       - name: make
         run: |
           make pkg
@@ -218,20 +203,29 @@ jobs:
       runs-on: macos-latest
 
       steps:
-      - name: prepare
+      - name: install erlang
         run: |
-          /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-          brew install gnu-sed erlang@23 haskell-stack
-          ln -s /usr/local/bin/gsed /usr/local/bin/sed
+          brew install erlang@23 gnu-sed
           echo "/usr/local/opt/erlang@23/bin" >> $GITHUB_PATH
-          echo "/usr/local/lib/hamler/bin" >> $GITHUB_PATH
           echo "/usr/local/bin" >> $GITHUB_PATH
+      - name: Setup Haskell
+        uses: haskell/actions/setup@v1
+        with:
+          ghc-version: 8.10
+          cabal-version: 3.4
+      - name: install happy
+        run: |
+          stack install happy-1.19.9 --resolver lts-13.26
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       - uses: actions/checkout@v2
       - name: make
+        env:
+          HAMLER_HOME: ${{ github.workspace }}/.cabal/hamler
         run: |
           make
           make test
-          sudo make install
+          make install
+          echo "$HAMLER_HOME/bin" >> $GITHUB_PATH
       - name: tests
         run: |
           mkdir test
@@ -243,9 +237,9 @@ jobs:
       - name: create tgz file
         run: |
           version=$(echo ${{ github.ref }} | gsed -r  "s .*/.*/(.*) \1 g")
-          cd /usr/local/lib && sudo tar cvf hamler-${version}.tgz hamler && cd -
+          cd ${{ github.workspace }}/.cabal && sudo tar cvf hamler-${version}.tgz hamler && cd -
           mkdir -p _packages
-          sudo mv /usr/local/lib/hamler-${version}.tgz _packages
+          sudo mv ${{ github.workspace }}/.cabal/hamler-${version}.tgz _packages
       - uses: actions/upload-artifact@v1
         with:
           name: mac

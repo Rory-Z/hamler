@@ -1,18 +1,20 @@
-FROM erlang:23
+FROM haskell:8.10
 
-RUN apt update && apt install -y locales \
-    && echo "LC_ALL=en_US.UTF-8" >> /etc/environment \
-    && echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen \
-    && echo "LANG=en_US.UTF-8" > /etc/locale.conf \
-    && locale-gen en_US.UTF-8
-
-ENV LC_ALL=en_US.UTF-8
-
-RUN apt update && apt install -y libtinfo-dev ghc
-
-RUN wget -qO- https://get.haskellstack.org/ | sh
+RUN stack install happy-1.19.9 --resolver lts-13.26 || stack setup && stack install happy-1.19.9 --resolver lts-13.26
 
 ENV PATH=/root/.local/bin:$PATH
+
+ENV OTP_VERSION=23
+
+RUN apt-get update \
+    && apt-get install -y wget git curl build-essential debhelper \
+    && wget https://packages.erlang-solutions.com/erlang-solutions_2.0_all.deb \
+    && dpkg -i erlang-solutions_2.0_all.deb \
+    && wget https://packages.erlang-solutions.com/debian/erlang_solutions.asc \
+    && apt-key add erlang_solutions.asc \
+    && apt update \
+    && version=$(apt-cache madison esl-erlang |grep ${OTP_VERSION} | sed -n '1, 1p' | awk '{print $3}') \
+    && apt-get install -y esl-erlang=${version}
 
 COPY . hamler
 RUN make -C hamler \
